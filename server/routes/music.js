@@ -3,8 +3,13 @@ const path = require('path');
 const fs = require('fs');
 const { scanDirectory, decodeFileId, getMimeType } = require('../utils/scanner');
 
-let mm;
-try { mm = require('music-metadata'); } catch (e) { mm = null; }
+// music-metadata is ESM-only from v8, so require() no longer works from this
+// CommonJS module. Load it once by dynamic import and await the same promise
+// at each call site. A failed load still leaves mm null, as before.
+let mm = null;
+const mmReady = import('music-metadata')
+    .then((m) => { mm = m; })
+    .catch(() => { mm = null; });
 
 module.exports = function (config) {
     const router = express.Router();
@@ -22,7 +27,8 @@ module.exports = function (config) {
 
         console.log(`[Music] Scanning: ${config.paths.music}`);
         const files = scanDirectory(config.paths.music, AUDIO_EXTS);
-        
+
+        await mmReady;
         if (mm) {
             for (const file of files) {
                 try {
@@ -127,6 +133,7 @@ module.exports = function (config) {
         try {
             // decodeFileId returns the absolute path if rootDir is provided
             const filePath = decodeFileId(req.params.id, config.paths.music);
+            await mmReady;
             if (!fs.existsSync(filePath) || !mm) {
                 return res.status(404).json({ error: 'Cover not available' });
             }
